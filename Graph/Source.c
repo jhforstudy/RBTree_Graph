@@ -75,16 +75,6 @@ char* PrintDate(struct date* d) {
 }
 // struct for timetable
 // 출발 시간이 고려된 전체 경로
-struct Route {
-    struct date depart_date;
-    struct PathNode* depart;
-};
-struct Route* newRoute() {
-    struct Route* new_route = (struct Route*)malloc(sizeof(struct Route));
-    new_route->depart = NULL;
-
-    return new_route;
-}
 struct FlightInfo {
     enum Cityname from;
     enum Cityname to;
@@ -147,6 +137,18 @@ struct PathNode* newPathNode() {
     path->distance = 0.0;
     path->time = 0.0;
     return path;
+}
+struct Route {
+    struct date depart_date;
+    struct PathNode* start;
+    int size;
+};
+struct Route* newRoute() {
+    struct Route* new_route = (struct Route*)malloc(sizeof(struct Route));
+    new_route->start = newPathNode();
+    new_route->size = 0;
+
+    return new_route;
 }
 // City 정보 + 인접리스트를 저장함.
 struct linkedList {
@@ -312,8 +314,8 @@ struct PathNode* insert_edge(struct GraphType* g, int u, int v) {
         // 그 뒤에 temp를 붙여줌
         new_city->next = temp;
     }
-    printf("%c -> %c로의 경로 생성\n", cityNames[depart_path->depart-1], cityNames[arrive_path->depart-1]);
-    printf("adj_list에 추가 완료 (%.2f km), %c -> %c\n", new_city->curr_path->distance, cityNames[new_city->curr_path->depart - 1], cityNames[new_city->curr_path->link->depart-1]);
+    //printf("%c -> %c로의 경로 생성\n", cityNames[depart_path->depart-1], cityNames[arrive_path->depart-1]);
+    //printf("adj_list에 추가 완료 (%.2f km), %c -> %c\n", new_city->curr_path->distance, cityNames[new_city->curr_path->depart - 1], cityNames[new_city->curr_path->link->depart-1]);
     return depart_path;
 }
 void print_adj_list(struct GraphType* g) {
@@ -354,23 +356,72 @@ int dequeue(QueueType* q) {
     q->size--;
     return item;
 }
-int bfs(struct GraphType* g, int v) {
-    struct linkedList* p;
-    QueueType* q = queue_init();
-    visited[v] = TRUE;
-    enqueue(q, v);
-    while (q->size != 0) {
-        v = dequeue(q);
-        for (p = g->adj_list[v]->next; p; p = p->next) {
-            if (!visited[p->name - 1]) {
-                // 발견
-                reachable_nodes++;
-                visited[p->name - 1] = TRUE;
-                enqueue(q, p->name - 1);
-            }
-        }
+
+void dfs(struct GraphType* g, struct Route* whole_route, enum Cityname dep, enum Cityname arr) {
+    // 다녀간 것으로 표시
+    visited[dep-1] = TRUE;
+    // whole_route의 맨 끝에 추가
+    struct PathNode* temp = whole_route->start;
+    if (whole_route->size == 0) {
     }
-    return reachable_nodes;
+    else {
+        while (temp->link != NULL) {
+            temp = temp->link;
+        }
+        // 다음거 생성후, 출발지 대입
+        temp->link = newPathNode();
+        temp->link->depart = dep;
+    }
+    whole_route->size++;
+
+    if (dep == arr) {
+        // 현재 경로 보여주기
+        /*
+        temp = whole_route->start;
+        while (temp != NULL) {
+            printf("%c -> ", cityNames[temp->depart - 1]);
+            temp = temp->link;
+        }*/
+        return;
+    }
+    struct linkedList* st = g->adj_list[dep-1]->next;
+    int cnt = 0;
+    while (st!=NULL) {
+        // 맨 처음 시작 노드가 나오면
+        if (st->name == whole_route->start->depart) {
+            st = st->next;
+            cnt++;
+            if (cnt == 10) {
+                whole_route->start = NULL;
+                return;
+            }
+            continue;
+        }
+        if (!visited[st->name - 1]) {
+            // 방문하지 않은거면, 찾기
+            dfs(g, whole_route, st->name, arr);
+        }
+        else {
+            if (cnt == 10) {
+                whole_route->start = NULL;
+                return;
+            }
+            // 방문한거면, 넘기기
+            st = st->next;
+            cnt++;
+            continue;
+        }
+
+        break;
+    }
+
+}
+struct Route* path_search(struct GraphType* g, enum Cityname depart, enum Cityname arrival) {
+    // 전체 경로 생성
+    struct Route* whole_route = newRoute();
+    whole_route->start->depart = depart;
+    dfs(g, whole_route, depart, arrival);
+    return whole_route;
 }
 
 bool CheckNoWay(enum TF* cl) {
@@ -384,276 +435,6 @@ bool CheckNoWay(enum TF* cl) {
     if (check_cnt == reachable_nodes - 1) {
         return true;
     }
-}
-struct Route* path_map_search(struct GraphType* g, enum Cityname depart, enum Cityname arrival) {
-    // 인접리스트는 "순방향"으로 검색
-    int start = depart - 1;
-    int end = arrival - 1;
-    float distance[MAX_SIZE];		// 거리
-    int	path_cnt[MAX_SIZE];		// 경로 수
-    enum TF check[MAX_SIZE];  // 방문했는지 여부
-    // 전체 경로 생성
-    struct Route* whole_route = newRoute();
-    // 출발지는 처음 도시고, 목적지는 없는 빈 PathNode 생성
-    struct PathNode* init_path = newPathNode();
-    init_path->depart = depart;
-    whole_route->depart = init_path;
-
-    for (int i = 0; i < MAX_SIZE; i++) {
-        distance[i] = INF;  // 초기화
-        path_cnt[i] = 0;
-        check[i] = FALSE;
-    }
-    int cycle = 0;
-    float min;
-    int now = start;
-    int before = now;
-    // 시작점의 거리는 0
-    distance[start] = 0;
-    // 시작점은 방문한 것으로 가정
-    check[start] = TRUE;
-    // 한 도시 안에서 주변 도시를 탐색할 때 필요 (즉, 다음 도시들 중의 후보)
-    struct linkedList* temp = g->adj_list[now]->next;
-    struct PathNode* added_path = whole_route->depart;
-
-
-
-
-
-
-    // 경로 탐색 과정
-
-
-    // 1. 첫 경로 초기화
-    // temp를 돌면서, 거리값 업데이트
-    struct PathNode* determined_path = temp->curr_path;
-    // 한 도시에서 주변 도시를 탐색
-    // (temp : 주변 도시 하나씩)
-    min = INF;  // 최솟값을 초기화
-    while (temp != NULL) {
-        // 1. 주변 노드들의 distance 정보 업데이트 (인접리스트를 돌면서)
-        // 현재 노드에서 각 도시까지의 distance 갱신
-        /*
-        for (int i = 0; i < 26; i++) {
-            printf("%d ", check[i]);
-        }*/
-        printf("\n");
-        // 안간 노드이면
-        if (!check[temp->name - 1]) {
-            // Path 정보를 꺼내와서
-            float curr_dis = temp->curr_path->distance;
-            // 거리를 distance 리스트에 갱신
-            distance[temp->name - 1] = curr_dis;
-            printf("업데이트 %c (%.2f)\n", cityNames[temp->name - 1], curr_dis);
-        }
-        temp = temp->next;
-    }
-
-    // 2. 선택
-    // 다시 한번 돌면서 최단 거리 선택
-    temp = g->adj_list[now]->next;
-    // 최단 거리 구하기 (인접리스트를 돌면서)
-    while (temp != NULL) {
-        // 만약 목적지를 발견하면, 바로 나가기
-        if (temp->name - 1 == end) {
-            // 이 경로를 path로 설정
-            determined_path = temp->curr_path;
-            // min, now 지정
-            min = temp->curr_path->distance;
-            now = temp->name - 1;
-            break;
-        }
-
-        // 짧은 거리가 나오면, 갱신 (들른 곳이 아닐 때만)
-        if (!check[temp->name - 1]) {
-            // 더 작으면, 갱신함
-            if (temp->curr_path->distance < min) {
-                // 이 경로를 path로 설정
-                determined_path = temp->curr_path;
-                // min, now 지정
-                min = temp->curr_path->distance;
-                now = temp->name - 1;
-            }
-        }
-    }
-    // 방문한 것으로 처리
-    check[now] = TRUE;
-    // determined_path; 정해진 경로
-    // whole_route 뒤로 이동해서
-    while (added_path->link != NULL) {
-        added_path = added_path->link;
-    }
-    // 경로를 추가함
-    added_path->link = determined_path;
-
-    // 3. 목적지가 나올 때까지 반복
-    while (determined_path->depart != arrival) {
-        // 현재 탐색해야 하는 곳 : adj_list[determined_path->depart-1]
-        // 거리 정보 다시 업데이트
-        temp = g->adj_list[determined_path->depart - 1]->next;
-        while (temp != NULL) {
-            // 현재 값이 더 적어지면, 업데이트
-            // 이전 값 : distance[temp->name-1]
-            // 현재 값 : temp->curr_path->distance + distance[before]
-            if (distance[temp->name - 1] > temp->curr_path->distance + distance[before]) {
-                distance[temp->name - 1] = temp->curr_path->distance + distance[before];
-            }
-            temp = temp->next;
-        }
-
-        // 최단 거리 구하기 (이번엔 전체 노드를 돌면서)
-        min = INF;
-        for (int i = 0; i < MAX_SIZE; i++) {
-            if (!check[i]) {
-                if (distance[i] < min) {
-                    min = distance[i];
-                    now = i;
-                }
-            }
-        }
-        // 찾은 도시 번호는 i
-
-        /*
-        temp = g->adj_list[determined_path->depart - 1]->next;
-        while (temp != NULL) {
-            // 만약 목적지를 발견하면, 바로 나가기
-            if (temp->name - 1 == end) {
-                // 이 경로를 path로 설정
-                determined_path = temp->curr_path;
-                // min, now 지정
-                min = temp->curr_path->distance;
-                now = temp->name - 1;
-                break;
-            }
-
-            // 짧은 거리가 나오면, 갱신 (들른 곳이 아닐 때만)
-            if (!check[temp->name - 1]) {
-                // 더 작으면, 갱신함
-                if (temp->curr_path->distance < min) {
-                    // 이 경로를 path로 설정
-                    determined_path = temp->curr_path;
-                    // min, now 지정
-                    min = temp->curr_path->distance;
-                    now = temp->name - 1;
-                }
-            }
-        }
-        */
-        // 방문한 것으로 처리
-        check[now] = TRUE;
-        // determined_path; 정해진 경로
-        // whole_route 뒤로 이동해서
-        while (added_path->link != NULL) {
-            added_path = added_path->link;
-        }
-        // 경로를 추가함
-        added_path->link = determined_path;
-
-    }
-    
-
-
-
-
-
-
-
-
-
-
-
-    
-    while (next_path != NULL) {
-        if (CheckNoWay(check)) {
-            printf("경로를 찾을 수 없습니다.");
-            return NULL;
-        }
-        
-        // 다시 한번 더 탐색
-        temp = next_path;
-        // 최단 거리 구하기 (인접리스트를 돌면서)
-        while (temp != NULL) {
-            // 만약 목적지를 발견하면, 바로 나가기
-            if (temp->name - 1 == end) {
-                // 이 경로를 path로 설정
-                determined_path = temp->curr_path;
-                // min, now 지정
-                min = temp->curr_path->distance;
-                now = temp->name - 1;
-                break;
-                // 
-                /*
-                // 출발지에서 이 도시로의 path를 가져오기
-                struct linkedList* find_arrival = g->adj_list[temp->name - 1]->next;
-                // 이 도시의 인접 리스트에 접근해서 
-                for (int i = 0; i < 10; i++) {
-                    printf("%c %c\n", cityNames[find_arrival->name-1], cityNames[g->adj_list[now]->name-1]);
-                    // 출발 도시이면, 이 패스를 가져오기
-                    if (find_arrival->name == g->adj_list[now]->name) {
-                        printf("출발 도시 찾음.\n");
-                        break;
-                    }
-                }*/
-                // 
-            }
-            // 들른 곳이 아닐 때만 min, now 결정
-            if (!check[temp->name - 1]) {
-                // 더 작으면, 갱신함
-                if (temp->curr_path->distance < min) {
-                    // 이 경로를 path로 설정
-                    determined_path = temp->curr_path;
-                    // min, now 지정
-                    min = temp->curr_path->distance;
-                    now = temp->name - 1;
-                    /*
-                    // 출발지에서 이 도시로의 path를 가져오기
-                    struct linkedList* find_arrival = g->adj_list[temp->name - 1]->next;
-                    // 이 도시의 인접 리스트에 접근해서 
-                    for (int i = 0; i < 10; i++) {
-                        printf("%c %c\n", cityNames[find_arrival->name - 1], cityNames[g->adj_list[now]->name - 1]);
-                        // 출발 도시이면, 이 패스를 가져오기
-                        if (find_arrival->name == g->adj_list[now]->name) {
-                            printf("출발 도시 찾음.\n");
-                            break;
-                        }
-                    }*/
-                }
-            }
-            // 다음으로 넘어가기
-            temp = temp->next;
-        }
-        // 다음 경로 결정 완료(determined_path), 도시 번호는 now
-        // 현재 도시를 방문으로 표시
-        check[now] = TRUE;
-        // 전체 경로에 합치기
-        struct PathNode* path_temp = whole_route->depart;
-        while (path_temp->link != NULL) {
-            path_temp = path_temp->link;
-        }
-        // 추가
-        path_temp->link = determined_path;
-        printf("네네 경로에 도시 %c 추가완료\n", cityNames[determined_path->depart - 1]);
-        // 만약 끝 점에 도달하면, 나가기
-        if (now == end) {
-            break;
-        }
-        // 아니면, 다음 주변 도시를 탐색
-        else {
-            next_path = g->adj_list[now]->next;
-        }
-    }
-
-    // 완성된 경로를 확인하기
-    
-    printf("\nwhole_route 확인\n");
-    struct PathNode* print_temp = whole_route->depart;
-    while (print_temp != NULL) {
-        printf("%c -> ", cityNames[print_temp->depart - 1]);
-        print_temp = print_temp->link;
-    }
-
-    return whole_route;
-    
 }
 
 // functions for timetable
@@ -708,6 +489,9 @@ bool nextDay(struct date dep, struct date arr) {
 }
 bool TomorrowFlight(struct date dep, struct date arr) {
     if (dep.hour > arr.hour) {
+        return true;
+    }
+    else if (dep.date > arr.date) {
         return true;
     }
     else {
@@ -1101,6 +885,11 @@ void RB_delete(struct rbtree* tree, int k) {
     struct node* temp;
     enum Color temp_col = delete_node->color;
 
+    if (delete_node == NULL) {
+        printf("ID가 존재하지 않아 삭제하지 못했습니다.\n");
+        return;
+    }
+
     // 삭제할 노드의 왼쪽이 없다면,
     if (delete_node->left == NULL) {
         temp = node_nil(delete_node->right);
@@ -1153,6 +942,7 @@ void RB_delete(struct rbtree* tree, int k) {
     }
     nil->parent = NULL;
 
+    printf("ID : %d 삭제 완료\n\n", k);
 }
 struct node* get_closest(struct node* n1, struct node* n2, int k) {
     if (abs(k - n1->key) < abs(k - n2->key)) {
@@ -1261,100 +1051,70 @@ void RB_insert(struct rbtree* tree, struct GraphType* g, struct reservation* res
 }
 struct reservation* MakeReservation(struct GraphType* g, struct FlightInfo*** timetable, char* name, enum Cityname depart, enum Cityname arrival, int reserv_date) {
     int init_reserv_date = reserv_date;
-    // 경로 존재하는지 찾는 함수
-    struct Route* route_1 = path_map_search(g, depart, arrival);
-    printf("일단 경로는 찾음\n");
-    struct PathNode* flight_way = route_1->depart;
-    struct PathNode* temp = route_1->depart;
     printf("===================================================\n");
-    printf("%d일 %c -> %c의 예약 시도...\n\n", reserv_date, cityNames[depart-1], cityNames[arrival-1]);
-    printf("경로 확인 : \n");
-    PrintLinkedPath(temp);
-    printf("\n경로 확인 완료\n\n");
-    printf("예약 결과...\n\n");
-    struct FlightInfo before_arrival;
-    struct FlightInfo eta;
+    printf("\t사용자: %s, %d일 %c -> %c의 예약 시도...\n\n", name, reserv_date, cityNames[depart - 1], cityNames[arrival - 1]);
+    for (int i = 0; i < MAX_SIZE; i++) {
+        visited[i] = FALSE; // 초기화
+    }
+    // 경로 존재하는지 찾는 함수
+    struct Route* found_route = path_search(g, depart, arrival);
     // 경로가 있다면
-    if (flight_way != NULL) {
+    if (found_route->start != NULL) {
+        struct PathNode* flight_way = found_route->start;
+        struct PathNode* temp = found_route->start;
+        printf("\t경로 확인...\n\n");
+        PrintLinkedPath(temp);
+        printf("\n\n\t경로 확인 완료\n\n");
+        printf("\t예약 결과...\n\n");
+        struct FlightInfo before_arrival;
+        struct FlightInfo eta;
+
         before_arrival = flight_way->depart_date;
-        // 경로가 끝날 떄까지
-        printf("loop ");
-        while (flight_way->link != NULL) {
-            // 인접 리스트에서 도착 도시의 date를 timetable에서 찾아서, date 대입하기
-            struct linkedList* l = g->adj_list[flight_way->link->depart - 1]->next;
-            eta = timetable[reserv_date - 1][l->name][0];
-            for (int i = 0; i < 10; i++) {
-                printf("bbbb ");
-                // 출발지와 같은지 확인
-                if (l->name == flight_way->depart) {
-                    // B를 찾았음. (l->name) B->N의 FlightInfo를 가져오기
-                    // timetable 속에서 N 찾기 
-                    printf("found ");
-                    for (int j = 0; j < 10; j++) {
-                        // 만약 도착지가 31일을 넘어버리면, 그냥 나가기
-                        if (reserv_date > DAY_OF_ONE_MONTH) {
-                            printf("날짜 범위를 초과하여 예약할 수 없습니다.\n");
+        // 경로가 끝날 때 까지, 반복
+        while (flight_way != NULL) {
+            // 출발지의 인접 리스트에서 도착 도시를 찾음
+            struct linkedList* l = g->adj_list[flight_way->depart - 1]->next;
+            eta = timetable[0][0][0];   // 변수 초기화
+            while (l != NULL) {
+                // 도착지와 같은 지 확인
+                if (l->name == flight_way->link->depart) {
+                    // 같으면, timetable에서 해당 도착지를 찾아야 함.
+                    for (int i = 0; i < 10; i++) {
+                        if ((reserv_date) > DAY_OF_ONE_MONTH) {
+                            printf("\n\t경로 생성 중 날짜 범위를 초과하여 예약할 수 없습니다.\n");
                             return NULL;
                         }
-                        printf("%c %c\n", cityNames[flight_way->depart - 1], cityNames[timetable[reserv_date - 1][flight_way->link->depart - 1][j].to - 1]);
-                        // timetable 안의 목적지 : timetable[reserv_date-1][flight_way->link->depart-1][j]
-                        if (flight_way->depart == timetable[reserv_date - 1][flight_way->link->depart - 1][j].to) {
-                            if (cityNames[arrival - 1] == cityNames[timetable[reserv_date - 1][l->name - 1][j].to - 1]) {
-                                printf("목적지 찾아버림~");
-                                eta = timetable[reserv_date - 1][l->name - 1][j];
-                                // 혹은, 하루 늘어났을 경우 reserv_date + 1
-                                if (nextDay(eta.from_date, eta.to_date)) {
-                                    reserv_date++;
-                                    if (reserv_date > DAY_OF_ONE_MONTH) {
-                                        printf("날짜 범위를 초과하여 예약할 수 없습니다.\n");
-                                        return NULL;
-                                    }
-                                }
-                                // 근데 출발지의 출발시간이 저번 도착지의 도착시간보다 빠르면 말이 안됨
-                                else if (TomorrowFlight(before_arrival.to_date, eta.from_date)) {
-                                    if (reserv_date > DAY_OF_ONE_MONTH) {
-                                        printf("날짜 범위를 초과하여 예약할 수 없습니다.\n");
-                                        return NULL;
-                                    }
-                                    eta = timetable[++(reserv_date)-1][l->name - 1][j];
-                                    // 도착지 일정이 31일을 넘겨버리면
-                                    if (eta.to_date.date > DAY_OF_ONE_MONTH) {
-                                        printf("날짜 범위를 초과하여 예약할 수 없습니다.\n");
-                                        return NULL;
-                                    }
-                                }
-
-                                break;
-                            }
-                            // 찾았으므로, 정보 가져오기 (B -> N)
-                            if (reserv_date > DAY_OF_ONE_MONTH) {
-                                printf("날짜 범위를 초과하여 예약할 수 없습니다.\n");
-                                return NULL;
-                            }
-                            eta = timetable[reserv_date - 1][l->name - 1][j];
+                        if (timetable[reserv_date - 1][flight_way->depart - 1][i].to == l->name) {
+                            eta = timetable[reserv_date - 1][flight_way->depart - 1][i];
+                            // 찾으면, 호출하여 비행 정보를 가져온다.
+                            // 예외 1. 하루 늘어났을 경우 reserv_date + 1
+                            // 예외 2. 출발지의 출발시간이 저번 도착지의 도착시간보다 빠르면 말이 안됨
                             
-                            // 혹은, 하루 늘어났을 경우 reserv_date + 1
                             if (nextDay(eta.from_date, eta.to_date)) {
-                                reserv_date++;
-                                if (reserv_date > DAY_OF_ONE_MONTH) {
-                                    printf("날짜 범위를 초과하여 예약할 수 없습니다.\n");
+                                if (++(reserv_date) > DAY_OF_ONE_MONTH) {
+                                    printf("\n\t경로 생성 중 날짜 범위를 초과하여 예약할 수 없습니다.\n");
                                     return NULL;
                                 }
+                                eta = timetable[reserv_date - 1][flight_way->depart - 1][i];
                             }
-                            // 근데 출발지의 출발시간이 저번 도착지의 도착시간보다 빠르면 말이 안됨
                             else if (TomorrowFlight(before_arrival.to_date, eta.from_date)) {
-                                if (reserv_date > DAY_OF_ONE_MONTH) {
-                                    printf("날짜 범위를 초과하여 예약할 수 없습니다.\n");
+                                if (++(reserv_date) > DAY_OF_ONE_MONTH) {
+                                    printf("\n\t경로 생성 중 날짜 범위를 초과하여 예약할 수 없습니다.\n");
                                     return NULL;
                                 }
-                                eta = timetable[++(reserv_date)-1][l->name - 1][j];
+                                eta = timetable[reserv_date-1][flight_way->depart - 1][i];
                                 // 도착지 일정이 31일을 넘겨버리면
                                 if (eta.to_date.date > DAY_OF_ONE_MONTH) {
-                                    printf("날짜 범위를 초과하여 예약할 수 없습니다.\n");
+                                    printf("\n\t경로 생성 중 날짜 범위를 초과하여 예약할 수 없습니다.\n");
                                     return NULL;
                                 }
                             }
-                            printf("찾았으니 나가자");
+                            
+                            printf("%c -> %c ", cityNames[eta.from - 1], cityNames[eta.to - 1]);
+                            DateToString(eta.from_date);
+                            printf(" ");
+                            DateToString(eta.to_date);
+                            printf("\n");
                             break;
                         }
                     }
@@ -1362,8 +1122,6 @@ struct reservation* MakeReservation(struct GraphType* g, struct FlightInfo*** ti
                 }
                 l = l->next;
             }
-            DateToString(eta.from_date);
-            DateToString(eta.to_date);
             // to_date 정보를 flight_way에 대입
             flight_way->depart_date = eta;
             flight_way = flight_way->link;
@@ -1371,20 +1129,20 @@ struct reservation* MakeReservation(struct GraphType* g, struct FlightInfo*** ti
             before_arrival.from_date = eta.from_date;
             before_arrival.to_date = eta.to_date;
             // 만약 찾은 곳이 목적지라면, 끝내기
-            if (cityNames[arrival - 1] == eta.to) {
+            if (arrival == eta.to) {
                 break;
             }
         }
         // 새로운 예약 생성
-        struct reservation* new_reserv = newReservation(name, route_1, init_reserv_date);
-        printf("예약자 정보 : %s\n", new_reserv->name);
-        printf("목적지까지 최단 경로 : ");
-        PrintLinkedPath(new_reserv->path->depart);
+        struct reservation* new_reserv = newReservation(name, found_route, init_reserv_date);
+        printf("\n\t예약자 정보 : %s\n", new_reserv->name);
+        printf("\t목적지까지 경로 : ");
+        PrintLinkedPath(new_reserv->path->start);
         printf("\n");
         // 경로 + 시간 보여주기
-        struct PathNode* print_path = route_1->depart;
-        printf("생성된 스케줄 : \n");
-        printf("출발 %c ", cityNames[print_path->depart - 1]);
+        struct PathNode* print_path = found_route->start;
+        printf("\t생성된 스케줄 : \n");
+        printf("\t출발 %c ", cityNames[print_path->depart - 1]);
         DateToString(print_path->depart_date.from_date);
         printf(" -> ");
         DateToString(print_path->depart_date.to_date);
@@ -1393,7 +1151,7 @@ struct reservation* MakeReservation(struct GraphType* g, struct FlightInfo*** ti
             if (print_path->link->depart == arrival) {
                 break;
             }
-            printf("출발 %c ", cityNames[print_path->link->depart - 1]);
+            printf("\t출발 %c ", cityNames[print_path->link->depart - 1]);
             DateToString(print_path->link->depart_date.from_date);
             printf(" -> ");
             DateToString(print_path->link->depart_date.to_date);
@@ -1403,20 +1161,17 @@ struct reservation* MakeReservation(struct GraphType* g, struct FlightInfo*** ti
         return new_reserv;
     }
     else {
-        printf("경로가 없습니다.");
+        printf("\t경로가 없어 예약할 수 없습니다.\n");
+        return NULL;
     }
 }
 void ReservationToBST(struct rbtree* tree, struct GraphType* g, struct reservation* new_reserv) {
-    printf("예약 완료!");
+    printf("\n예약 완료! ");
     // 예약을 RB tree에 넣기
-    if (new_reserv != NULL) {
-        // 예약을 RB tree에 넣기
-        RB_insert(tree, g, new_reserv);
-        printf("---------------------------------------------------\n");
-        printf("BST 출력...\n\n");
-        Print_BST(tree->root, NULL, false);
-        printf("출력 ok...\n\n");
-    }
+    RB_insert(tree, g, new_reserv);
+    printf("---------------------------------------------------\n");
+    printf("BST 출력...\n\n");
+    Print_BST(tree->root, NULL, false);
 }
 
 int main()
@@ -1491,9 +1246,6 @@ int main()
     // RB tree 생성
     struct rbtree* tree = newRBtree();
     printf("RB tree 생성 완료\n");
-    
-    // 도달할 수 있는 노드의 개수 확인
-    printf("도달 가능한 도시의 개수 : %d\n", bfs(g, 0));
 
     // 인접 리스트 출력
     print_adj_list(g);
@@ -1504,14 +1256,12 @@ int main()
     booker = "Kim";
     depart = A;
     arrival = B;
-    reserv_date = 2;
+    reserv_date = 21;
     new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
     // 예약을 RB tree에 넣기
-    /*
     if (new_reserv != NULL) {
         ReservationToBST(tree, g, new_reserv);
-    }*/
-    /*
+    }
     // 예약자 정보
     booker = "Lee";
     depart = C;
@@ -1551,14 +1301,103 @@ int main()
     if (new_reserv != NULL) {
         ReservationToBST(tree, g, new_reserv);
     }
-    */
+
+    // 예약자 정보
+    booker = "Paul";
+    depart = A;
+    arrival = R;
+    reserv_date = 3;
+    new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
+    if (new_reserv != NULL) {
+        ReservationToBST(tree, g, new_reserv);
+    }
+
+    // 예약자 정보
+    booker = "Simon";
+    depart = N;
+    arrival = H;
+    reserv_date = 14;
+    new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
+    if (new_reserv != NULL) {
+        ReservationToBST(tree, g, new_reserv);
+    }
+
+    // 예약자 정보
+    booker = "James";
+    depart = K;
+    arrival = V;
+    reserv_date = 12;
+    new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
+    if (new_reserv != NULL) {
+        ReservationToBST(tree, g, new_reserv);
+    }
+
+    // 예약자 정보
+    booker = "Hue";
+    depart = G;
+    arrival = Y;
+    reserv_date = 9;
+    new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
+    if (new_reserv != NULL) {
+        ReservationToBST(tree, g, new_reserv);
+    }
+
+    // 예약자 정보
+    booker = "Laura";
+    depart = P;
+    arrival = O;
+    reserv_date = 1;
+    new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
+    if (new_reserv != NULL) {
+        ReservationToBST(tree, g, new_reserv);
+    }
+
+    // 예약자 정보
+    booker = "Jay";
+    depart = A;
+    arrival = C;
+    reserv_date = 11;
+    new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
+    if (new_reserv != NULL) {
+        ReservationToBST(tree, g, new_reserv);
+    }
+
+    // 예약자 정보
+    booker = "Sam";
+    depart = W;
+    arrival = X;
+    reserv_date = 21;
+    new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
+    if (new_reserv != NULL) {
+        ReservationToBST(tree, g, new_reserv);
+    }
+
+    // 예약자 정보
+    booker = "Saera";
+    depart = T;
+    arrival = V;
+    reserv_date = 5;
+    new_reserv = MakeReservation(g, timetable, booker, depart, arrival, reserv_date);
+    if (new_reserv != NULL) {
+        ReservationToBST(tree, g, new_reserv);
+    }
+    // 삭제
+    int delete_key = 0;
+    for (int i = 0; i < 5; i++) {
+        printf("삭제할 키를 입력해 주십시오.\n");
+        scanf_s("%d", &delete_key);
+        RB_delete(tree, delete_key);
+        Print_BST(tree->root, NULL, false);
+    }
+    
     // 메모리 반납
     free(timetable);
     free(new_reserv);
     free(g);
-    printf("Graph까지 삭제 완료\n");
-    delete_rbtree(tree);
-    printf("메반완");
+    printf("===================================================\n");
+    free(tree);
+    //delete_rbtree(tree);
+    printf("메모리 반납 완료");
 
     return 0;
 
