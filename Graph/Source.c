@@ -125,11 +125,11 @@ struct FlightInfo*** newTimetable() {
 // struct for City & Path map
 // Path 정보를 저장함.
 struct PathNode {
-    enum Cityname depart;   // vertex
-    struct PathNode* link;  // link
-    float distance;    // weight
-    float time;     // elapsed_time
-    struct FlightInfo depart_date;    // 출발 도시에서 시각
+    enum Cityname depart;  // 도시 이름
+    struct PathNode* link; // Path를 잇기 위한 포인터
+    float distance;        // 경로
+    float time;            // 소요 시간
+    struct FlightInfo depart_date;    // 출발지, 출발시각, 도착지, 도착시각
 };
 struct PathNode* newPathNode() {
     struct PathNode* path = (struct PathNode*)malloc(sizeof(struct PathNode));
@@ -263,8 +263,8 @@ void insert_depart(struct GraphType* g, enum Cityname v) {
     }
     g->adj_n++;
     // 도시 정보 랜덤하게 생성
-    rand_int_x = rand() % 6000 - 3000;
-    rand_int_y = rand() % 6000 - 3000;
+    rand_int_x = rand() % 6001 - 3000;
+    rand_int_y = rand() % 6001 - 3000;
     struct CityInfo* curr_city = newCityInfo(rand_int_x, rand_int_y, v);
     // 현재 도시를 adj_list에 넣고, 주변 도시 포인터 초기화
     g->adj_list[v - 1] = curr_city;
@@ -389,12 +389,12 @@ void dfs(struct GraphType* g, struct Route* whole_route, enum Cityname dep, enum
     while (st!=NULL) {
         // 맨 처음 시작 노드가 나오면
         if (st->name == whole_route->start->depart) {
-            st = st->next;
             cnt++;
             if (cnt == 10) {
                 whole_route->start = NULL;
                 return;
             }
+            st = st->next;
             continue;
         }
         if (!visited[st->name - 1]) {
@@ -402,13 +402,13 @@ void dfs(struct GraphType* g, struct Route* whole_route, enum Cityname dep, enum
             dfs(g, whole_route, st->name, arr);
         }
         else {
+            cnt++;
             if (cnt == 10) {
                 whole_route->start = NULL;
                 return;
             }
             // 방문한거면, 넘기기
             st = st->next;
-            cnt++;
             continue;
         }
 
@@ -675,7 +675,7 @@ struct node* RB_find(struct rbtree* tree, int key) {
     struct node* temp;
     temp = tree->root;
 
-    while (temp != nil) {
+    while (temp != NULL) {
         if (key == temp->key) {
             return temp;
         }
@@ -879,16 +879,17 @@ void RB_delete_fixup(struct rbtree* tree, struct node* delete_node) {
 void RB_delete(struct rbtree* tree, int k) {
     // 삭제될 노드
     struct node* delete_node = RB_find(tree, k);
-    // 그 노드를 가리키는 임시 노드
-    struct node* y = delete_node;
-    // 그 노드의 원래 위치 및 색 기억
-    struct node* temp;
-    enum Color temp_col = delete_node->color;
 
     if (delete_node == NULL) {
         printf("ID가 존재하지 않아 삭제하지 못했습니다.\n");
         return;
     }
+
+    // 그 노드를 가리키는 임시 노드
+    struct node* y = delete_node;
+    // 그 노드의 원래 위치 및 색 기억
+    struct node* temp;
+    enum Color temp_col = delete_node->color;
 
     // 삭제할 노드의 왼쪽이 없다면,
     if (delete_node->left == NULL) {
